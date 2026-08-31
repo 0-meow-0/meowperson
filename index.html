@@ -884,8 +884,75 @@ const $ = s => document.querySelector(s);
 const lightbox = $('#lightbox'), detailOv = $('#detailOv');
 let activeWork = null;
 const LB_W = 360;
-// 视频 ▶ 播放：任何区域可播（导出版无编辑概念；is-playing 放行 CSS 隐藏的原生控件）
-// at-poster：未播放/结束后显示预览图封面（img.video-poster 覆盖 video）；开始播放收起，ended 加回，暂停不动（暂停显示当前帧）
+// ===== 视频播放/暂停/结束 状态机（对标本地编辑版 index.html）=====
+// at-poster：未播放/结束后显示预览图封面（img.video-poster 覆盖 video）；播放开始移除，ended 加回，暂停不动（暂停显示当前帧）
+// 16:9 用原生控件（宽屏足够）：播放中动态加 controls，未播放移除；手机屏用自定义 .video-ctrl（窄容器原生进度条会被折叠）
+// 用 capture（true）：媒体元素事件不冒泡，bubble 阶段 document 收不到
+['play','playing'].forEach(ev => document.addEventListener(ev, e => {
+  if (e.target.matches && e.target.matches('.video-el')) {
+    const sc = e.target.closest('.video-screen, .phone-screen');
+    sc.classList.add('is-playing');
+    sc.classList.remove('at-poster');   // 开始播放：收起预览图封面
+    if (sc.classList.contains('video-screen')) e.target.setAttribute('controls', '');
+  }
+}, true));
+['pause','ended'].forEach(ev => document.addEventListener(ev, e => {
+  if (e.target.matches && e.target.matches('.video-el')) {
+    const sc = e.target.closest('.video-screen, .phone-screen');
+    sc.classList.remove('is-playing');
+    e.target.removeAttribute('controls');   // 未播放隐藏原生控件，只留中央 ▶
+    if (ev === 'ended') {
+      sc.classList.add('at-poster');   // 播放结束：回到预览图封面 + 重置开头
+      e.target.pause();
+      e.target.currentTime = 0;
+      e.target.load();
+    }
+  }
+}, true));
+// 手机屏自定义进度条：播放中实时刷新进度 + 时间（主页面 + 详情页 + 放大图统一）
+function fmtTime(t){
+  if (!isFinite(t) || t < 0) return '0:00';
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+function updatePhoneCtrl(vid){
+  const sc = vid.closest('.phone-screen');
+  if (!sc) return;
+  const ctrl = sc.querySelector('.video-ctrl');
+  if (!ctrl) return;
+  const pct = vid.duration ? Math.min(100, vid.currentTime / vid.duration * 100) : 0;
+  ctrl.querySelector('.bar i').style.width = pct + '%';
+  ctrl.querySelector('.vt').textContent = fmtTime(vid.currentTime) + ' / ' + fmtTime(vid.duration);
+}
+['timeupdate','loadedmetadata'].forEach(ev => document.addEventListener(ev, e => {
+  if (e.target.matches && e.target.matches('.phone-screen video.video-el')) updatePhoneCtrl(e.target);
+}, true));
+// 手机屏视频注入自定义控件条：移除原生 controls（窄容器会被折叠进度条）+ 建 .video-ctrl（❚❚ 暂停 + 进度条 + 时间）
+function initPhoneCtrls(){
+  document.querySelectorAll('.phone-screen[data-vid-key]').forEach(screen => {
+    const vid = screen.querySelector('video.video-el');
+    if (!vid) return;
+    vid.removeAttribute('controls');   // 未播放不显示原生控件（避免与 .video-ctrl 双重控件）
+    if (screen.querySelector('.video-ctrl')) return;
+    const ctrl = document.createElement('div');
+    ctrl.className = 'video-ctrl';
+    ctrl.innerHTML = '<button class="pp" title="暂停">❚❚</button><div class="bar"><i></i></div><span class="vt">0:00 / 0:00</span>';
+    screen.appendChild(ctrl);
+    ctrl.querySelector('.pp').onclick = e => {   // onclick 属性：cloneNode 放大后控件仍可用
+      e.stopPropagation();
+      const v = screen.querySelector('.video-el');
+      if (v) v.pause();
+    };
+    ctrl.querySelector('.bar').onclick = e => {
+      const v = screen.querySelector('.video-el');
+      if (!v || !v.duration) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      if (rect.width) v.currentTime = (e.clientX - rect.left) / rect.width * v.duration;
+    };
+  });
+}
+initPhoneCtrls();
+// 视频 ▶ 播放：任何区域可播；is-playing 放行 CSS 隐藏的原生控件
 document.addEventListener('click', e => {
   const vplay = e.target.closest('.video-play');
   if (!vplay) return;
@@ -893,28 +960,15 @@ document.addEventListener('click', e => {
   const vid = vs && vs.querySelector('.video-el');
   if (!vid) return;
   vs.classList.add('is-playing');
-  vs.classList.remove('at-poster');   // 开始播放：收起预览图封面（否则封面一直盖住视频画面）
+  vs.classList.remove('at-poster');
   vid.play().catch(() => { vs.classList.remove('is-playing'); vs.classList.add('at-poster'); });
 });
-// 播放结束：回到预览图封面 + 重置到开头；暂停：移除 is-playing（显示当前帧，不加回封面）
-// 用 capture（true）：媒体元素 ended/pause 事件不冒泡，bubble 阶段 document 收不到
-['ended','pause'].forEach(ev => document.addEventListener(ev, e => {
-  if (!e.target.matches || !e.target.matches('.video-el')) return;
-  const vs = e.target.closest('.video-screen, .phone-screen');
-  if (!vs) return;
-  vs.classList.remove('is-playing');
-  if (ev === 'ended') {
-    vs.classList.add('at-poster');
-    e.target.pause();
-    e.target.currentTime = 0;
-    e.target.load();
-  }
-}, true));
 document.addEventListener('click', e => {
   if (lightbox.classList.contains('on')) return;   // 放大图内不二次放大
   const screen = e.target.closest('.phones .phone-screen');
   if (!screen) return;
-  if (e.target.closest('video.video-el') || e.target.closest('.video-ctrl') || e.target.closest('.video-play')) return;   // 需求53：点视频画面/进度条/▶ 不放大
+  if (e.target.closest('video.video-el') && !screen.classList.contains('at-poster')) return;   // 需求53：播放中/暂停后点视频画面不放大（放大只留给封面/照片）
+  if (e.target.closest('.video-ctrl') || e.target.closest('.video-play')) return;   // 进度条/▶ 不放大
   const phone = screen.closest('.phone');
   if (!phone) return;
   const clone = phone.cloneNode(true);
@@ -922,6 +976,7 @@ document.addEventListener('click', e => {
   clone.removeAttribute('style');
   clone.style.setProperty('width', LB_W + 'px');
   clone.style.setProperty('--phone-self-scale', String(LB_W / 132));
+  normalizeCloneMedia(clone);   // 复位为未播放态（避免克隆带着 is-playing 黑屏死锁）
   openLightbox(clone);
 });
 function openLightbox(node){
@@ -930,13 +985,24 @@ function openLightbox(node){
   lightbox.scrollTop = 0;
   lightbox.classList.add('on');
 }
+// 放大图内媒体复位为"未播放态"：清 is-playing、暂停视频、移除原生 controls、恢复海报封面
+// （解决"播放中点击放大"边界——避免克隆带着 is-playing 却是暂停态的无 ▶/无 controls 黑屏死锁）
+function normalizeCloneMedia(clone){
+  clone.querySelectorAll('.video-screen,.phone-screen').forEach(sc => {
+    sc.classList.remove('is-playing');
+    const vid = sc.querySelector('.video-el');
+    if (vid) { vid.pause(); vid.removeAttribute('controls'); }
+    if (sc.classList.contains('has-poster')) sc.classList.add('at-poster');
+  });
+}
 // 详情手机预览图放大（导出版无编辑概念，直接放大）
 document.addEventListener('click', e => {
   if (e.target.closest('.video-play')) return;   // ▶ 归播放按钮
   if (lightbox.classList.contains('on')) return;
   const screen = e.target.closest('.work-detail .phone-screen');
   if (!screen) return;
-  if (e.target.closest('video.video-el') || e.target.closest('.video-ctrl')) return;   // 需求53：点视频画面/进度条不放大
+  if (e.target.closest('video.video-el') && !screen.classList.contains('at-poster')) return;   // 需求53：播放中/暂停后点视频画面不放大（放大只留给封面/照片）
+  if (e.target.closest('.video-ctrl')) return;   // 进度条不放大
   const phone = screen.closest('.phone');
   if (!phone) return;
   const clone = phone.cloneNode(true);
@@ -944,20 +1010,22 @@ document.addEventListener('click', e => {
   clone.removeAttribute('style');
   clone.style.setProperty('width', LB_W + 'px');
   clone.style.setProperty('--phone-self-scale', String(LB_W / 132));
+  normalizeCloneMedia(clone);
   openLightbox(clone);
 });
-// 16:9 图片框放大（主页面 + 详情页共用；导出版视频靠静态原生 controls 播放，故不清 controls）
+// 16:9 图片/视频框放大（主页面 + 详情页共用）
 document.addEventListener('click', e => {
   if (e.target.closest('.video-play,.video-add,.video-replace,.video-del,.detail-del-btn')) return;
   if (lightbox.classList.contains('on')) return;
   const vs = e.target.closest('.video-area .video-screen');
   if (!vs) return;
-  if (e.target.closest('video.video-el')) return;   // 需求53：点视频画面/控件不放大（放大只留给图片）
+  if (e.target.closest('video.video-el') && !vs.classList.contains('at-poster')) return;   // 需求53：播放中/暂停后点视频画面不放大（放大只留给封面/图片）
   if (!vs.classList.contains('has-video') && !vs.classList.contains('has-image')) return;   // 空框不放大
   const va = vs.closest('.video-area');
   const clone = va.cloneNode(true);
   clone.querySelectorAll('.video-add,.video-actions,.video-replace,.video-del,.detail-del-btn').forEach(el => el.remove());
   clone.removeAttribute('style');
+  normalizeCloneMedia(clone);
   openLightbox(clone);
 });
 document.addEventListener('click', e => {
