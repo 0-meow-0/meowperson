@@ -885,6 +885,7 @@ const lightbox = $('#lightbox'), detailOv = $('#detailOv');
 let activeWork = null;
 const LB_W = 360;
 // 视频 ▶ 播放：任何区域可播（导出版无编辑概念；is-playing 放行 CSS 隐藏的原生控件）
+// at-poster：未播放/结束后显示预览图封面（img.video-poster 覆盖 video）；开始播放收起，ended 加回，暂停不动（暂停显示当前帧）
 document.addEventListener('click', e => {
   const vplay = e.target.closest('.video-play');
   if (!vplay) return;
@@ -892,8 +893,23 @@ document.addEventListener('click', e => {
   const vid = vs && vs.querySelector('.video-el');
   if (!vid) return;
   vs.classList.add('is-playing');
-  vid.play().catch(() => vs.classList.remove('is-playing'));
+  vs.classList.remove('at-poster');   // 开始播放：收起预览图封面（否则封面一直盖住视频画面）
+  vid.play().catch(() => { vs.classList.remove('is-playing'); vs.classList.add('at-poster'); });
 });
+// 播放结束：回到预览图封面 + 重置到开头；暂停：移除 is-playing（显示当前帧，不加回封面）
+// 用 capture（true）：媒体元素 ended/pause 事件不冒泡，bubble 阶段 document 收不到
+['ended','pause'].forEach(ev => document.addEventListener(ev, e => {
+  if (!e.target.matches || !e.target.matches('.video-el')) return;
+  const vs = e.target.closest('.video-screen, .phone-screen');
+  if (!vs) return;
+  vs.classList.remove('is-playing');
+  if (ev === 'ended') {
+    vs.classList.add('at-poster');
+    e.target.pause();
+    e.target.currentTime = 0;
+    e.target.load();
+  }
+}, true));
 document.addEventListener('click', e => {
   if (lightbox.classList.contains('on')) return;   // 放大图内不二次放大
   const screen = e.target.closest('.phones .phone-screen');
