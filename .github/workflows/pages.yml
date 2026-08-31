@@ -1,0 +1,30 @@
+# 部署到 GitHub Pages —— 使用 Actions 而非「从分支部署」：
+# 分支部署不拉取 Git LFS 内容（主视频 147M 走 LFS，分支部署只提供指针文件 → 视频无法播放）。
+# 必须用 Actions：checkout 时 lfs: true 拉取真实文件 → 打包为 artifact → deploy-pages 发布。
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: .
+          include-hidden-files: false
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
