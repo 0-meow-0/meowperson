@@ -294,12 +294,13 @@ body.detail-open.detail-editing .video-actions{display:flex}  /* 需求 47：详
 
 /* 预览图封面：独立 img.video-poster 覆盖 video——未播放/结束后永远显示主人选的预览图
    （video.poster 只在无可用帧时显示，load() 后会被视频首帧替换，不可靠）
-   层级：video(0) < 封面(1) < ▶(2)；pointer-events:none 让点击穿透到 video（放大灯箱/▶ 可点） */
+   层级：video(0) < 封面(1) < ▶(2)；封面自身可点（pointer-events:auto）——点击直接命中普通 <img>
+   全平台可靠触发放大灯箱，不依赖穿透到 video（移动端/iOS 的 video 点击常被系统吞掉） */
 .video-screen img.video-poster,
 .phone-screen img.video-poster{
   position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
   z-index:1;display:none;background:var(--paper-2);
-  pointer-events:none;
+  pointer-events:auto;-webkit-user-drag:none;   /* 封面本身可点（放大）；-webkit-user-drag:none 防 iOS 拖拽图片干扰轮播滑动 */
 }
 .video-screen.has-poster.at-poster img.video-poster,
 .phone-screen.has-poster.at-poster img.video-poster{display:block}
@@ -1087,6 +1088,13 @@ document.querySelectorAll('.phones').forEach(rail => {
 });
 window.addEventListener('resize', syncRails);
 syncRails();
+// 需求：刷新/返回时手机视频轮播固定显示第一个——防浏览器恢复旧滚动位 + scroll-snap 吸附到第二个手机
+function resetPhoneRails(){
+  document.querySelectorAll('.phones').forEach(rail => { if (rail.scrollLeft) rail.scrollLeft = 0; });
+}
+window.addEventListener('pageshow', resetPhoneRails);
+window.addEventListener('load', resetPhoneRails);
+setTimeout(resetPhoneRails, 1000);
 const root = document.documentElement, themeBtn = $('#themeBtn');
 const applyTheme = t => { root.dataset.theme = t; themeBtn.textContent = t === 'dark' ? 'LIGHT' : 'DARK'; };
 try { applyTheme(localStorage.getItem('theme') || 'light'); } catch(_) { applyTheme('light'); }
